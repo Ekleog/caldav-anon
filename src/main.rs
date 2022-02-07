@@ -73,6 +73,7 @@ fn handle_calendar_properties(prop: &[ical::property::Property], cfg: &Cfg, _res
             "REFRESH-INTERVAL" => (),
             "VERSION" if p.value.as_ref().map(|v| v as &str) == Some("2.0") => (),
             _ if p.name.starts_with("X-") => (),
+            // And either warn or bail on unknown properties
             _ => {
                 if cfg.ignore_unknown_properties {
                     tracing::warn!("Found unknown property {}, ignoring", p.name);
@@ -87,22 +88,29 @@ fn handle_calendar_properties(prop: &[ical::property::Property], cfg: &Cfg, _res
 
 fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut icalendar::Calendar) -> anyhow::Result<()> {
     for e in evts {
-        ensure!(e.alarms.is_empty(), "Parsed calendar event has alarms, this is not implemented yet, please open an issue");
-        tracing::info!("Got event {:?}", e);
-
         let mut event = icalendar::Event::new();
         event.summary(&cfg.message);
+        // Ignore all alarms, as we only care about busy-ness
         for p in &e.properties {
             match &p.name as &str {
                 // Censor all non-required properties
+                "CREATED" => (),
                 "DTSTAMP" => (),
                 "DESCRIPTION" => (),
+                "LAST-MODIFIED" => (),
                 "LOCATION" => (),
                 "SUMMARY" => (),
                 "URL" => (),
-                "DTSTART" | "DTEND" => {
+                // Proxy all important properties
+                "DTSTART" | "DTEND" | "EXDATE" | "EXRULE" | "RDATE" | "RRULE" | "SEQUENCE" | "STATUS" => {
+                    // TODO: icalendar should support parameters in properties instead of us just making a name_with_params
+                    let mut name_with_params = p.name.clone();
+                    for param in p.params.iter().flat_map(|v| v.iter()) {
+                        ensure!(param.1.len() == 1, "Got parameter with more than 1 argument, this is not supported yet, please open an issue");
+                        name_with_params = name_with_params + ";" + &param.0 + "=" + &param.1[0]
+                    }
                     event.add_property(
-                        &p.name,
+                        &name_with_params,
                         p.value
                             .as_ref()
                             .ok_or_else(|| anyhow!("Found property expecting a value without value: {}", p.name))?,
@@ -115,6 +123,7 @@ fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut icalendar::Calendar) -
                     let hash = hasher.finalize().into_bytes();
                     event.uid(&hex::encode(hash));
                 }
+                // And either warn or bail on the other properties
                 _ => {
                     if cfg.ignore_unknown_properties {
                         tracing::warn!("Found unknown event property {}, ignoring", p.name);
