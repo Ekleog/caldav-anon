@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use anyhow::Context;
-use rocket::response::status::NotFound;
+use anyhow::{ensure, Context};
+use rocket::{http::Status, response::status};
 use structopt::StructOpt;
+use tracing::warn;
 
 /// Anonymize the contents of iCal URLs while keeping the time slots
 #[derive(Debug, StructOpt)]
@@ -30,17 +31,41 @@ struct Config {
     calendars: HashMap<String, url::Url>,
 }
 
+async fn parse_remote_ics(url: &url::Url) -> anyhow::Result<icalendar::Calendar> {
+    // Fetch the remote ICS file
+    let response = reqwest::get(url.as_str()).await.context("Fetching remote URL")?;
+    ensure!(response.status().is_success(), "Remote URL did not reply with a successful code: {:?}", response.status());
+    let text = response.text().await.context("Recovering the text part of the remote URL")?;
+
+    // And parse it
+    tracing::info!("Got response text: {:?}", text);
+    Ok(icalendar::Calendar::new())
+}
+
 #[rocket::get("/<path>")]
-fn do_the_thing(path: &str, cfg: &rocket::State<Config>) -> Result<String, NotFound<String>> {
+async fn do_the_thing(path: &str, cfg: &rocket::State<Config>) -> Result<String, status::Custom<String>> {
     let remote_url = cfg.calendars.get(path)
-        .ok_or_else(|| NotFound(format!("Path {} is not configured", path)))?;
-    Ok(remote_url.to_string())
+        .ok_or_else(|| status::Custom(Status::NotFound, format!("Path {} is not configured", path)))?;
+
+    let remote_ics = parse_remote_ics(&remote_url).await
+        .map_err(|e| {
+            warn!("Error parsing remote ICS: {:?}", e);
+            status::Custom(Status::InternalServerError, format!("Error parsing remote ICS, see the logs for details"))
+        })?;
+
+    Ok("foo".to_string())
 }
 
 #[rocket::main]
 async fn main() -> anyhow::Result<()> {
     let opts = Opt::from_args();
     let config: Config = toml::from_str(&std::fs::read_to_string(&opts.config_file)?)?;
+
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::INFO)
+            .finish()
+    ).context("Setting tracing global subscriber")?;
 
     let rocket_config = rocket::Config {
         port: opts.port,

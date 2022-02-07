@@ -5,6 +5,8 @@ pkgs.stdenv.mkDerivation {
   buildInputs = (
     (with pkgs; [
       mdbook
+      openssl
+      pkg-config
       rust-analyzer
     ]) ++
     (with rustNightlyChannel; [
