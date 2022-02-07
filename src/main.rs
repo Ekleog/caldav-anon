@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use anyhow::{anyhow, ensure, Context};
+use anyhow::{ensure, Context};
 use hmac::Mac;
 use ical::parser::ical::component::{IcalCalendar, IcalEvent};
-use icalendar::Component;
 use rocket::{http::Status, response::status};
 use structopt::StructOpt;
 use tracing::warn;
@@ -62,12 +61,31 @@ async fn parse_remote_ics(url: &url::Url) -> anyhow::Result<IcalCalendar> {
     calendar.with_context(|| format!("Failed to parse the calendar for remote URL {}", url))
 }
 
-fn handle_calendar_properties(prop: &[ical::property::Property], cfg: &Cfg, _res: &mut icalendar::Calendar) -> anyhow::Result<()> {
+fn build_property(name: &str, params: &Option<Vec<(String, Vec<String>)>>, value: &Option<String>) -> String {
+    let mut res = name.to_string();
+    if let Some(params) = params {
+        for p in params {
+            res = res + ";" + &p.0 + "=" + &p.1[0];
+            for v in p.1.iter().next() {
+                res = res + "," + v;
+            }
+        }
+    }
+    res += ":";
+    if let Some(value) = value {
+        res += value;
+    }
+    res += "\n";
+    res
+}
+
+fn handle_calendar_properties(prop: &[ical::property::Property], cfg: &Cfg, res: &mut String) -> anyhow::Result<()> {
     tracing::info!("Property list: {:?}", prop);
     for p in prop {
         match &p.name as &str {
+            // Proxy all important properties
+            "CALSCALE" => *res += &build_property("CALSCALE", &p.params, &p.value),
             // Censor all non-required properties
-            "CALSCALE" => (),
             "METHOD" => (),
             "PRODID" => (),
             "REFRESH-INTERVAL" => (),
@@ -86,13 +104,26 @@ fn handle_calendar_properties(prop: &[ical::property::Property], cfg: &Cfg, _res
     Ok(())
 }
 
-fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut icalendar::Calendar) -> anyhow::Result<()> {
+fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut String) -> anyhow::Result<()> {
     for e in evts {
-        let mut event = icalendar::Event::new();
-        event.summary(&cfg.message);
+        *res += &format!("BEGIN:VEVENT\n\
+                          SUMMARY:{}\n\
+                          DTSTAMP:19700101T000000Z\n", cfg.message);
         // Ignore all alarms, as we only care about busy-ness
+        // Go through the interesting properties
         for p in &e.properties {
             match &p.name as &str {
+                // Proxy all important properties
+                "DTSTART" | "DTEND" | "EXDATE" | "EXRULE" | "RDATE" | "RRULE" | "SEQUENCE" | "STATUS" => {
+                    *res += &build_property(&p.name, &p.params, &p.value);
+                }
+                "UID" => if let Some(value) = &p.value {
+                    let mut hasher = hmac::Hmac::<sha2::Sha256>::new_from_slice(cfg.seed.as_bytes())
+                        .context("Initializing hasher with seed")?;
+                    hasher.update(value.as_bytes());
+                    let hash = hasher.finalize().into_bytes();
+                    *res += &format!("UID:{}\n", hex::encode(hash));
+                }
                 // Censor all non-required properties
                 "CREATED" => (),
                 "DTSTAMP" => (),
@@ -101,28 +132,6 @@ fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut icalendar::Calendar) -
                 "LOCATION" => (),
                 "SUMMARY" => (),
                 "URL" => (),
-                // Proxy all important properties
-                "DTSTART" | "DTEND" | "EXDATE" | "EXRULE" | "RDATE" | "RRULE" | "SEQUENCE" | "STATUS" => {
-                    // TODO: icalendar should support parameters in properties instead of us just making a name_with_params
-                    let mut name_with_params = p.name.clone();
-                    for param in p.params.iter().flat_map(|v| v.iter()) {
-                        ensure!(param.1.len() == 1, "Got parameter with more than 1 argument, this is not supported yet, please open an issue");
-                        name_with_params = name_with_params + ";" + &param.0 + "=" + &param.1[0]
-                    }
-                    event.add_property(
-                        &name_with_params,
-                        p.value
-                            .as_ref()
-                            .ok_or_else(|| anyhow!("Found property expecting a value without value: {}", p.name))?,
-                    );
-                }
-                "UID" => if let Some(value) = &p.value {
-                    let mut hasher = hmac::Hmac::<sha2::Sha256>::new_from_slice(cfg.seed.as_bytes())
-                        .context("Initializing hasher with seed")?;
-                    hasher.update(value.as_bytes());
-                    let hash = hasher.finalize().into_bytes();
-                    event.uid(&hex::encode(hash));
-                }
                 // And either warn or bail on the other properties
                 _ => {
                     if cfg.ignore_unknown_properties {
@@ -133,13 +142,15 @@ fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut icalendar::Calendar) -
                 }
             }
         }
-        res.push(event);
+        *res += "END:VEVENT\n";
     }
     Ok(())
 }
 
-fn generate_calendar(cal: IcalCalendar, cfg: &Cfg) -> anyhow::Result<icalendar::Calendar> {
-    let mut res = icalendar::Calendar::new();
+fn generate_ics(cal: IcalCalendar, cfg: &Cfg) -> anyhow::Result<String> {
+    let mut res = "BEGIN:VCALENDAR\n\
+                   VERSION:2.0\n\
+                   PRODID:CALDAV-ANON\n".to_string();
 
     handle_calendar_properties(&cal.properties, cfg, &mut res).context("Handling the calendar properties")?;
     handle_events(&cal.events, cfg, &mut res).context("Handling the calendar events")?;
@@ -148,6 +159,8 @@ fn generate_calendar(cal: IcalCalendar, cfg: &Cfg) -> anyhow::Result<icalendar::
     ensure!(cal.journals.is_empty(), "Parsed calendar had journals, this is not implemented yet, please open an issue");
     ensure!(cal.free_busys.is_empty(), "Parsed calendar had free_busys, this is not implemented yet, please open an issue");
     ensure!(cal.timezones.is_empty(), "Parsed calendar had timezones, this is not implemented yet, please open an issue");
+
+    res += "END:VCALENDAR\n";
 
     Ok(res)
 }
@@ -164,18 +177,12 @@ async fn do_the_thing(path: &str, cfg: &rocket::State<Config>) -> Result<String,
         })?;
     tracing::info!("Got remote ICS {:?}", remote_ics);
 
-    let generated_calendar = generate_calendar(remote_ics, &cfg.config)
+    let generated_ics = generate_ics(remote_ics, &cfg.config)
         .map_err(|e| {
             warn!("Error generating scrubbed-out ICS from remote ICS: {:?}", e);
             status::Custom(Status::InternalServerError, format!("Error generating local ICS, see the logs for details\n"))
         })?;
-    tracing::info!("Generated local ICS {:?}", generated_calendar);
-
-    let generated_ics = (&generated_calendar).try_into()
-        .map_err(|e| {
-            warn!("Error lowering scrubbed-out ICS to string: {:?}", e);
-            status::Custom(Status::InternalServerError, format!("Error lowering local ICS to string, see the logs for details\n"))
-        })?;
+    tracing::info!("Generated local ICS {:?}", generated_ics);
 
     Ok(generated_ics)
 }
