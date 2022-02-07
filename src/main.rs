@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use anyhow::{ensure, Context};
+use anyhow::{anyhow, ensure, Context};
+use hmac::Mac;
 use ical::parser::ical::component::{IcalCalendar, IcalEvent};
+use icalendar::Component;
 use rocket::{http::Status, response::status};
 use structopt::StructOpt;
 use tracing::warn;
@@ -28,7 +30,21 @@ struct Opt {
 }
 
 #[derive(serde::Deserialize)]
+struct Cfg {
+    /// The message to use as a summary in the generated events
+    message: String,
+
+    /// The seed to use for hashing the UIDs of calendar events. Should ideally be unguessable
+    seed: String,
+
+    /// Whether to ignore all unknown properties
+    #[serde(default)] // bool::default() is `false`
+    ignore_unknown_properties: bool,
+}
+
+#[derive(serde::Deserialize)]
 struct Config {
+    config: Cfg,
     calendars: HashMap<String, url::Url>,
 }
 
@@ -46,7 +62,7 @@ async fn parse_remote_ics(url: &url::Url) -> anyhow::Result<IcalCalendar> {
     calendar.with_context(|| format!("Failed to parse the calendar for remote URL {}", url))
 }
 
-fn handle_calendar_properties(prop: &[ical::property::Property], _res: &mut icalendar::Calendar) -> anyhow::Result<()> {
+fn handle_calendar_properties(prop: &[ical::property::Property], cfg: &Cfg, _res: &mut icalendar::Calendar) -> anyhow::Result<()> {
     tracing::info!("Property list: {:?}", prop);
     for p in prop {
         match &p.name as &str {
@@ -57,27 +73,67 @@ fn handle_calendar_properties(prop: &[ical::property::Property], _res: &mut ical
             "REFRESH-INTERVAL" => (),
             "VERSION" if p.value.as_ref().map(|v| v as &str) == Some("2.0") => (),
             _ if p.name.starts_with("X-") => (),
-            _ => anyhow::bail!("Found unknown property, please open an issue: {}", p.name),
+            _ => {
+                if cfg.ignore_unknown_properties {
+                    tracing::warn!("Found unknown property {}, ignoring", p.name);
+                } else {
+                    anyhow::bail!("Found unknown property, please open an issue and consider using `ignore_unknown_properties`: {}", p.name);
+                }
+            }
         }
     }
     Ok(())
 }
 
-fn handle_events(evts: &[IcalEvent], res: &mut icalendar::Calendar) -> anyhow::Result<()> {
+fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut icalendar::Calendar) -> anyhow::Result<()> {
     for e in evts {
         ensure!(e.alarms.is_empty(), "Parsed calendar event has alarms, this is not implemented yet, please open an issue");
+        tracing::info!("Got event {:?}", e);
+
+        let mut event = icalendar::Event::new();
+        event.summary(&cfg.message);
         for p in &e.properties {
-            todo!()
+            match &p.name as &str {
+                // Censor all non-required properties
+                "DTSTAMP" => (),
+                "DESCRIPTION" => (),
+                "LOCATION" => (),
+                "SUMMARY" => (),
+                "URL" => (),
+                "DTSTART" | "DTEND" => {
+                    event.add_property(
+                        &p.name,
+                        p.value
+                            .as_ref()
+                            .ok_or_else(|| anyhow!("Found property expecting a value without value: {}", p.name))?,
+                    );
+                }
+                "UID" => if let Some(value) = &p.value {
+                    let mut hasher = hmac::Hmac::<sha2::Sha256>::new_from_slice(cfg.seed.as_bytes())
+                        .context("Initializing hasher with seed")?;
+                    hasher.update(value.as_bytes());
+                    let hash = hasher.finalize().into_bytes();
+                    event.uid(&hex::encode(hash));
+                }
+                _ => {
+                    if cfg.ignore_unknown_properties {
+                        tracing::warn!("Found unknown event property {}, ignoring", p.name);
+                    } else {
+                        anyhow::bail!("Found unknown event property, please open an issue and consider using `ignore_unknown_properties`: {}", p.name);
+                    }
+                }
+            }
         }
+        res.push(event);
     }
     Ok(())
 }
 
-fn generate_calendar(cal: IcalCalendar) -> anyhow::Result<icalendar::Calendar> {
+fn generate_calendar(cal: IcalCalendar, cfg: &Cfg) -> anyhow::Result<icalendar::Calendar> {
     let mut res = icalendar::Calendar::new();
 
-    handle_calendar_properties(&cal.properties, &mut res).context("Handling the calendar properties")?;
-    handle_events(&cal.events, &mut res).context("Handling the calendar events")?;
+    handle_calendar_properties(&cal.properties, cfg, &mut res).context("Handling the calendar properties")?;
+    handle_events(&cal.events, cfg, &mut res).context("Handling the calendar events")?;
     ensure!(cal.alarms.is_empty(), "Parsed calendar had alarms, this is not implemented yet, please open an issue");
     ensure!(cal.todos.is_empty(), "Parsed calendar had todos, this is not implemented yet, please open an issue");
     ensure!(cal.journals.is_empty(), "Parsed calendar had journals, this is not implemented yet, please open an issue");
@@ -99,7 +155,7 @@ async fn do_the_thing(path: &str, cfg: &rocket::State<Config>) -> Result<String,
         })?;
     tracing::info!("Got remote ICS {:?}", remote_ics);
 
-    let generated_calendar = generate_calendar(remote_ics)
+    let generated_calendar = generate_calendar(remote_ics, &cfg.config)
         .map_err(|e| {
             warn!("Error generating scrubbed-out ICS from remote ICS: {:?}", e);
             status::Custom(Status::InternalServerError, format!("Error generating local ICS, see the logs for details\n"))
