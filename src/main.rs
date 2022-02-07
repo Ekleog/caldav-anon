@@ -3,7 +3,7 @@ use std::net::IpAddr;
 
 use anyhow::{ensure, Context};
 use hmac::Mac;
-use ical::parser::ical::component::{IcalCalendar, IcalEvent};
+use ical::parser::ical::component::{IcalCalendar, IcalEvent, IcalTimeZone};
 use rocket::{http::Status, response::status};
 use structopt::StructOpt;
 use tracing::warn;
@@ -66,7 +66,7 @@ fn build_property(name: &str, params: &Option<Vec<(String, Vec<String>)>>, value
     if let Some(params) = params {
         for p in params {
             res = res + ";" + &p.0 + "=" + &p.1[0];
-            for v in p.1.iter().next() {
+            for v in &p.1[1..] {
                 res = res + "," + v;
             }
         }
@@ -77,6 +77,16 @@ fn build_property(name: &str, params: &Option<Vec<(String, Vec<String>)>>, value
     }
     res += "\n";
     res
+}
+
+macro_rules! unknown_property {
+    ($type:expr, $cfg:expr, $propname:expr) => {
+        if $cfg.ignore_unknown_properties {
+            tracing::warn!("Found unknown {} property {}, ignoring", $type, $propname);
+        } else {
+            anyhow::bail!("Found unknown {} property {}, please open an issue and consider using `ignore_unknown_properties`", $type, $propname);
+        }
+    }
 }
 
 fn handle_calendar_properties(prop: &[ical::property::Property], cfg: &Cfg, res: &mut String) -> anyhow::Result<()> {
@@ -92,14 +102,42 @@ fn handle_calendar_properties(prop: &[ical::property::Property], cfg: &Cfg, res:
             "VERSION" if p.value.as_ref().map(|v| v as &str) == Some("2.0") => (),
             _ if p.name.starts_with("X-") => (),
             // And either warn or bail on unknown properties
-            _ => {
-                if cfg.ignore_unknown_properties {
-                    tracing::warn!("Found unknown property {}, ignoring", p.name);
-                } else {
-                    anyhow::bail!("Found unknown property, please open an issue and consider using `ignore_unknown_properties`: {}", p.name);
+            _ => unknown_property!("calendar", cfg, p.name),
+        }
+    }
+    Ok(())
+}
+
+fn handle_timezones(tzs: &[IcalTimeZone], cfg: &Cfg, res: &mut String) -> anyhow::Result<()> {
+    for tz in tzs {
+        *res += "BEGIN:VTIMEZONE\n";
+        for p in &tz.properties {
+            match &p.name as &str {
+                // Proxy all important properties
+                "TZID" => {
+                    *res += &build_property(&p.name, &p.params, &p.value);
                 }
+                // And either warn or bail on the other properties
+                _ => unknown_property!("timezone", cfg, p.name),
             }
         }
+        for transition in &tz.transitions {
+            // TODO: ical doesn't expose whether it's BEGIN:DAYLIGHT or BEGIN:STANDARD
+            // It probably doesn't matter anyway? I don't think the spec asks for any differential treatment at least
+            *res += "BEGIN:STANDARD\n";
+            for p in &transition.properties {
+                match &p.name as &str {
+                    // Proxy all important properties
+                    "DTSTART" | "RRULE" | "TZNAME" | "TZOFFSETFROM" | "TZOFFSETTO" => {
+                        *res += &build_property(&p.name, &p.params, &p.value);
+                    }
+                    // And either warn or bail on unknown properties
+                    _ => unknown_property!("timezone transition", cfg, p.name),
+                }
+            }
+            *res += "END:STANDARD\n";
+        }
+        *res += "END:VTIMEZONE\n";
     }
     Ok(())
 }
@@ -133,13 +171,7 @@ fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut String) -> anyhow::Res
                 "SUMMARY" => (),
                 "URL" => (),
                 // And either warn or bail on the other properties
-                _ => {
-                    if cfg.ignore_unknown_properties {
-                        tracing::warn!("Found unknown event property {}, ignoring", p.name);
-                    } else {
-                        anyhow::bail!("Found unknown event property, please open an issue and consider using `ignore_unknown_properties`: {}", p.name);
-                    }
-                }
+                _ => unknown_property!("event", cfg, p.name),
             }
         }
         *res += "END:VEVENT\n";
@@ -153,12 +185,12 @@ fn generate_ics(cal: IcalCalendar, cfg: &Cfg) -> anyhow::Result<String> {
                    PRODID:CALDAV-ANON\n".to_string();
 
     handle_calendar_properties(&cal.properties, cfg, &mut res).context("Handling the calendar properties")?;
+    handle_timezones(&cal.timezones, cfg, &mut res).context("Handling the calendar timezones")?;
     handle_events(&cal.events, cfg, &mut res).context("Handling the calendar events")?;
     ensure!(cal.alarms.is_empty(), "Parsed calendar had alarms, this is not implemented yet, please open an issue");
     ensure!(cal.todos.is_empty(), "Parsed calendar had todos, this is not implemented yet, please open an issue");
     ensure!(cal.journals.is_empty(), "Parsed calendar had journals, this is not implemented yet, please open an issue");
     ensure!(cal.free_busys.is_empty(), "Parsed calendar had free_busys, this is not implemented yet, please open an issue");
-    ensure!(cal.timezones.is_empty(), "Parsed calendar had timezones, this is not implemented yet, please open an issue");
 
     res += "END:VCALENDAR\n";
 
