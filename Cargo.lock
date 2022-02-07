@@ -121,25 +121,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4872d67bab6358e59559027aa3b9157c53d9358c51423c17554809a8858e0f8"
 
 [[package]]
-name = "caldav-anon"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "hex",
- "hmac",
- "ical",
- "reqwest",
- "rocket",
- "serde",
- "sha2",
- "structopt",
- "toml",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
 name = "cc"
 version = "1.0.72"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -602,6 +583,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a9f7215ad0d77e69644570dee000c7678a47ba7441062c1b5f918adde0d73cf"
 dependencies = [
  "thiserror",
+]
+
+[[package]]
+name = "ics-anon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "hmac",
+ "ical",
+ "reqwest",
+ "rocket",
+ "serde",
+ "sha2",
+ "structopt",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

@@ -1,7 +1,7 @@
 with import ./common.nix;
 
 pkgs.stdenv.mkDerivation {
-  name = "caldav-anon";
+  name = "ics-anon";
   buildInputs = (
     (with pkgs; [
       mdbook
