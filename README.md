@@ -33,6 +33,6 @@ Other related projects:
 
 ## Release Notes
 
-# v0.1.0
+### v0.1.0
 
 - Basic functionality, enough to import a Nextcloud Calendar into a Google Calendar without leaking the event contents data
