@@ -165,7 +165,7 @@ fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut String) -> anyhow::Res
         *res += &format!(
             "BEGIN:VEVENT\n\
              SUMMARY:{}\n\
-             DTSTAMP:19700101T000000Z\n",
+             DTSTAMP:20200101T000001Z\n",
             cfg.message
         );
         // Ignore all alarms, as we only care about busy-ness
