@@ -207,7 +207,7 @@ fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut String) -> anyhow::Res
 fn generate_ics(cal: IcalCalendar, cfg: &Cfg) -> anyhow::Result<String> {
     let mut res = "BEGIN:VCALENDAR\n\
                    VERSION:2.0\n\
-                   PRODID:CALDAV-ANON\n"
+                   PRODID:-//ICS-anon//ICS-anon//\n"
         .to_string();
 
     handle_calendar_properties(&cal.properties, cfg, &mut res)
