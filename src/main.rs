@@ -49,9 +49,19 @@ struct Config {
 
 async fn parse_remote_ics(url: &url::Url) -> anyhow::Result<IcalCalendar> {
     // Fetch the remote ICS file
-    let response = reqwest::get(url.as_str()).await.with_context(|| format!("Fetching remote URL {}", url))?;
-    ensure!(response.status().is_success(), "Remote URL {} did not reply with a successful code: {:?}", url, response.status());
-    let text = response.text().await.with_context(|| format!("Recovering the text part of the remote URL {}", url))?;
+    let response = reqwest::get(url.as_str())
+        .await
+        .with_context(|| format!("Fetching remote URL {}", url))?;
+    ensure!(
+        response.status().is_success(),
+        "Remote URL {} did not reply with a successful code: {:?}",
+        url,
+        response.status()
+    );
+    let text = response
+        .text()
+        .await
+        .with_context(|| format!("Recovering the text part of the remote URL {}", url))?;
 
     // And parse it
     let calendars = ical::IcalParser::new(text.as_bytes()).collect::<Vec<_>>();
@@ -61,7 +71,11 @@ async fn parse_remote_ics(url: &url::Url) -> anyhow::Result<IcalCalendar> {
     calendar.with_context(|| format!("Failed to parse the calendar for remote URL {}", url))
 }
 
-fn build_property(name: &str, params: &Option<Vec<(String, Vec<String>)>>, value: &Option<String>) -> String {
+fn build_property(
+    name: &str,
+    params: &Option<Vec<(String, Vec<String>)>>,
+    value: &Option<String>,
+) -> String {
     let mut res = name.to_string();
     if let Some(params) = params {
         for p in params {
@@ -89,7 +103,11 @@ macro_rules! unknown_property {
     }
 }
 
-fn handle_calendar_properties(prop: &[ical::property::Property], cfg: &Cfg, res: &mut String) -> anyhow::Result<()> {
+fn handle_calendar_properties(
+    prop: &[ical::property::Property],
+    cfg: &Cfg,
+    res: &mut String,
+) -> anyhow::Result<()> {
     tracing::info!("Property list: {:?}", prop);
     for p in prop {
         match &p.name as &str {
@@ -144,23 +162,30 @@ fn handle_timezones(tzs: &[IcalTimeZone], cfg: &Cfg, res: &mut String) -> anyhow
 
 fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut String) -> anyhow::Result<()> {
     for e in evts {
-        *res += &format!("BEGIN:VEVENT\n\
-                          SUMMARY:{}\n\
-                          DTSTAMP:19700101T000000Z\n", cfg.message);
+        *res += &format!(
+            "BEGIN:VEVENT\n\
+             SUMMARY:{}\n\
+             DTSTAMP:19700101T000000Z\n",
+            cfg.message
+        );
         // Ignore all alarms, as we only care about busy-ness
         // Go through the interesting properties
         for p in &e.properties {
             match &p.name as &str {
                 // Proxy all important properties
-                "DTSTART" | "DTEND" | "EXDATE" | "EXRULE" | "RDATE" | "RRULE" | "SEQUENCE" | "STATUS" => {
+                "DTSTART" | "DTEND" | "EXDATE" | "EXRULE" | "RDATE" | "RRULE" | "SEQUENCE"
+                | "STATUS" => {
                     *res += &build_property(&p.name, &p.params, &p.value);
                 }
-                "UID" => if let Some(value) = &p.value {
-                    let mut hasher = hmac::Hmac::<sha2::Sha256>::new_from_slice(cfg.seed.as_bytes())
-                        .context("Initializing hasher with seed")?;
-                    hasher.update(value.as_bytes());
-                    let hash = hasher.finalize().into_bytes();
-                    *res += &format!("UID:{}\n", hex::encode(hash));
+                "UID" => {
+                    if let Some(value) = &p.value {
+                        let mut hasher =
+                            hmac::Hmac::<sha2::Sha256>::new_from_slice(cfg.seed.as_bytes())
+                                .context("Initializing hasher with seed")?;
+                        hasher.update(value.as_bytes());
+                        let hash = hasher.finalize().into_bytes();
+                        *res += &format!("UID:{}\n", hex::encode(hash));
+                    }
                 }
                 // Censor all non-required properties
                 "CREATED" => (),
@@ -182,15 +207,29 @@ fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut String) -> anyhow::Res
 fn generate_ics(cal: IcalCalendar, cfg: &Cfg) -> anyhow::Result<String> {
     let mut res = "BEGIN:VCALENDAR\n\
                    VERSION:2.0\n\
-                   PRODID:CALDAV-ANON\n".to_string();
+                   PRODID:CALDAV-ANON\n"
+        .to_string();
 
-    handle_calendar_properties(&cal.properties, cfg, &mut res).context("Handling the calendar properties")?;
+    handle_calendar_properties(&cal.properties, cfg, &mut res)
+        .context("Handling the calendar properties")?;
     handle_timezones(&cal.timezones, cfg, &mut res).context("Handling the calendar timezones")?;
     handle_events(&cal.events, cfg, &mut res).context("Handling the calendar events")?;
-    ensure!(cal.alarms.is_empty(), "Parsed calendar had alarms, this is not implemented yet, please open an issue");
-    ensure!(cal.todos.is_empty(), "Parsed calendar had todos, this is not implemented yet, please open an issue");
-    ensure!(cal.journals.is_empty(), "Parsed calendar had journals, this is not implemented yet, please open an issue");
-    ensure!(cal.free_busys.is_empty(), "Parsed calendar had free_busys, this is not implemented yet, please open an issue");
+    ensure!(
+        cal.alarms.is_empty(),
+        "Parsed calendar had alarms, this is not implemented yet, please open an issue"
+    );
+    ensure!(
+        cal.todos.is_empty(),
+        "Parsed calendar had todos, this is not implemented yet, please open an issue"
+    );
+    ensure!(
+        cal.journals.is_empty(),
+        "Parsed calendar had journals, this is not implemented yet, please open an issue"
+    );
+    ensure!(
+        cal.free_busys.is_empty(),
+        "Parsed calendar had free_busys, this is not implemented yet, please open an issue"
+    );
 
     res += "END:VCALENDAR\n";
 
@@ -198,22 +237,33 @@ fn generate_ics(cal: IcalCalendar, cfg: &Cfg) -> anyhow::Result<String> {
 }
 
 #[rocket::get("/<path>")]
-async fn do_the_thing(path: &str, cfg: &rocket::State<Config>) -> Result<String, status::Custom<String>> {
-    let remote_url = cfg.calendars.get(path)
-        .ok_or_else(|| status::Custom(Status::NotFound, format!("Path {} is not configured\n", path)))?;
+async fn do_the_thing(
+    path: &str,
+    cfg: &rocket::State<Config>,
+) -> Result<String, status::Custom<String>> {
+    let remote_url = cfg.calendars.get(path).ok_or_else(|| {
+        status::Custom(
+            Status::NotFound,
+            format!("Path {} is not configured\n", path),
+        )
+    })?;
 
-    let remote_ics = parse_remote_ics(&remote_url).await
-        .map_err(|e| {
-            warn!("Error parsing remote ICS: {:?}", e);
-            status::Custom(Status::InternalServerError, format!("Error parsing remote ICS, see the logs for details\n"))
-        })?;
+    let remote_ics = parse_remote_ics(&remote_url).await.map_err(|e| {
+        warn!("Error parsing remote ICS: {:?}", e);
+        status::Custom(
+            Status::InternalServerError,
+            format!("Error parsing remote ICS, see the logs for details\n"),
+        )
+    })?;
     tracing::info!("Got remote ICS {:?}", remote_ics);
 
-    let generated_ics = generate_ics(remote_ics, &cfg.config)
-        .map_err(|e| {
-            warn!("Error generating scrubbed-out ICS from remote ICS: {:?}", e);
-            status::Custom(Status::InternalServerError, format!("Error generating local ICS, see the logs for details\n"))
-        })?;
+    let generated_ics = generate_ics(remote_ics, &cfg.config).map_err(|e| {
+        warn!("Error generating scrubbed-out ICS from remote ICS: {:?}", e);
+        status::Custom(
+            Status::InternalServerError,
+            format!("Error generating local ICS, see the logs for details\n"),
+        )
+    })?;
     tracing::info!("Generated local ICS {:?}", generated_ics);
 
     Ok(generated_ics)
@@ -227,8 +277,9 @@ async fn main() -> anyhow::Result<()> {
     tracing::subscriber::set_global_default(
         tracing_subscriber::FmtSubscriber::builder()
             .with_max_level(tracing::Level::INFO)
-            .finish()
-    ).context("Setting tracing global subscriber")?;
+            .finish(),
+    )
+    .context("Setting tracing global subscriber")?;
 
     let rocket_config = rocket::Config {
         port: opts.port,
