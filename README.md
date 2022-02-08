@@ -22,7 +22,7 @@ path-1 = "https://remote-1/foo"
 path-2 = "http://remote-2/bar?ics"
 ```
 
-With this conifguration, `http://localhost:8000/path-1` will be an anonymized version of the ICS feed at `https://remote-1/foo`, and `http://localhost:8000/path-2` will be an anonymized version of the ICS feed at `http://remote-2/bar?ics".
+With this conifguration, `http://localhost:8000/path-1` will be an anonymized version of the ICS feed at `https://remote-1/foo`, and `http://localhost:8000/path-2` will be an anonymized version of the ICS feed at `http://remote-2/bar?ics`.
 
 ### See also
 
