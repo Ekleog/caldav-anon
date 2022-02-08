@@ -111,7 +111,7 @@ fn handle_calendar_properties(
     cfg: &Cfg,
     res: &mut String,
 ) -> anyhow::Result<()> {
-    tracing::info!("Property list: {:?}", prop);
+    tracing::debug!("Property list: {:?}", prop);
     for p in prop {
         match &p.name as &str {
             // Proxy all important properties
@@ -261,7 +261,7 @@ async fn do_the_thing(
             format!("Error parsing remote ICS, see the logs for details\n"),
         )
     })?;
-    tracing::info!("Got remote ICS {:?}", remote_ics);
+    tracing::debug!("Got remote ICS {:?}", remote_ics);
 
     let generated_ics = generate_ics(remote_ics, &cfg.config).map_err(|e| {
         warn!("Error generating scrubbed-out ICS from remote ICS: {:?}", e);
@@ -270,7 +270,7 @@ async fn do_the_thing(
             format!("Error generating local ICS, see the logs for details\n"),
         )
     })?;
-    tracing::info!("Generated local ICS {:?}", generated_ics);
+    tracing::debug!("Generated local ICS {:?}", generated_ics);
 
     Ok(generated_ics)
 }
