@@ -13,6 +13,7 @@ You can run ICS-anon with `cargo run -- -c <config-file>`. See `cargo run -- -h`
 The configuration file looks like this:
 ```toml
 [config]
+name = "The censored calendar's name"
 message = "The message to use as summary of the censored events"
 seed = "Some hard-to-guess seed to protect the UIDs"
 ignore_unknown_properties = false # Setting this to true can be useful when using a not-yet-supported ICS feed

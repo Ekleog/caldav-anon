@@ -30,6 +30,9 @@ struct Opt {
 
 #[derive(serde::Deserialize)]
 struct Cfg {
+    /// The calendar name
+    name: String,
+
     /// The message to use as a summary in the generated events
     message: String,
 
@@ -205,10 +208,13 @@ fn handle_events(evts: &[IcalEvent], cfg: &Cfg, res: &mut String) -> anyhow::Res
 }
 
 fn generate_ics(cal: IcalCalendar, cfg: &Cfg) -> anyhow::Result<String> {
-    let mut res = "BEGIN:VCALENDAR\n\
-                   VERSION:2.0\n\
-                   PRODID:-//ICS-anon//ICS-anon//\n"
-        .to_string();
+    let mut res = format!(
+        "BEGIN:VCALENDAR\n\
+         VERSION:2.0\n\
+         PRODID:-//ICS-anon//ICS-anon//\n\
+         X-WR-CALNAME:{}\n",
+        cfg.name,
+    );
 
     handle_calendar_properties(&cal.properties, cfg, &mut res)
         .context("Handling the calendar properties")?;
