@@ -30,3 +30,9 @@ With this conifguration, `http://localhost:8000/path-1` will be an anonymized ve
 Other related projects:
 - https://github.com/derekantrican/GAS-ICS-Sync (Force Google to refresh ICS calendars more often)
 - https://github.com/utdemir/gcal-i-am-busy (Sync one Google Calendar with another one, marking the contents as only “busy”)
+
+## Release Notes
+
+# v0.1.0
+
+- Basic functionality, enough to import a Nextcloud Calendar into a Google Calendar without leaking the event contents data
