@@ -27,6 +27,15 @@ pub async fn parse_remote_ics(url: &url::Url) -> anyhow::Result<IcalCalendar> {
     calendar.with_context(|| format!("Failed to parse the calendar for remote URL {}", url))
 }
 
+fn maybe_quote(v: &str) -> String {
+    for c in v.chars() {
+        if c == ';' || c == ':' || c == ',' {
+            return format!("\"{}\"", v);
+        }
+    }
+    v.to_owned()
+}
+
 pub fn build_property(
     name: &str,
     params: &Option<Vec<(String, Vec<String>)>>,
@@ -35,18 +44,17 @@ pub fn build_property(
     let mut res = name.to_string();
     if let Some(params) = params {
         for p in params {
-            res = res + ";" + &p.0 + "=\"" + &p.1[0];
+            res = res + ";" + &p.0 + "=" + &maybe_quote(&p.1[0]);
             for v in &p.1[1..] {
-                res = res + "\",\"" + v;
+                res = res + "," + &maybe_quote(v);
             }
-            res += "\"";
         }
     }
-    res += ":\"";
+    res += ":";
     if let Some(value) = value {
-        res += value;
+        res += &maybe_quote(value);
     }
-    res += "\"\n";
+    res += "\n";
     res
 }
 
