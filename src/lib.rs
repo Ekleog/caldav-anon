@@ -39,9 +39,10 @@ pub fn build_property(
             for v in &p.1[1..] {
                 res = res + "\",\"" + v;
             }
+            res += "\"";
         }
     }
-    res += "\":\"";
+    res += ":\"";
     if let Some(value) = value {
         res += value;
     }
