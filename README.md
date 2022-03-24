@@ -1,4 +1,6 @@
-# ICS-anon
+# ICS-Tools
+
+## ICS-anon
 
 ICS-anon is a proxy server, that re-serves an ICS calendar but anonymizes the detailed contents.
 
@@ -6,7 +8,7 @@ It is designed to be used to make it possible to publicize a private calendar wi
 
 It can for instance be used to sync a Nextcloud Calendar to a Google Calendar as “busy” slots without leaking more information than strictly required.
 
-## Usage
+### Usage
 
 You can run ICS-anon with `cargo run -- -c <config-file>`. See `cargo run -- -h` for more command line flags.
 
@@ -25,7 +27,22 @@ path-2 = "http://remote-2/bar?ics"
 
 With this conifguration, `http://localhost:8000/path-1` will be an anonymized version of the ICS feed at `https://remote-1/foo`, and `http://localhost:8000/path-2` will be an anonymized version of the ICS feed at `http://remote-2/bar?ics`.
 
-### See also
+## ICS-ignore
+
+ICS-ignore is a proxy server, that re-serves an ICS calendar but filters out events with defined contents.
+
+It is designed to make it possible to avoid duplicates when synchronizing both a personal calendar and a work calendar that has the events anonymized by ICS-anon setup.
+
+Such a setup would look like:
+- Have a personal ICS feed
+- Setup ICS-anon to anonymize this personal ICS feed (thereafter personal-anon)
+- Import personal-anon into the work ICS feed
+- Setup ICS-ignore to ignore the `busy` events from the work ICS feed (thereafter filtered-work)
+- Have personal calendar applications fetch events from personal and filtered-work, thus avoiding duplicates
+
+### Usage
+
+## See also
 
 Other related projects:
 - https://github.com/derekantrican/GAS-ICS-Sync (Force Google to refresh ICS calendars more often)
