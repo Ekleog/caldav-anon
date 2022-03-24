@@ -52,7 +52,7 @@ pub fn build_property(
     }
     res += ":";
     if let Some(value) = value {
-        res += &maybe_quote(value);
+        res += value;
     }
     res += "\n";
     res
