@@ -64,6 +64,11 @@ Other related projects:
 
 ## Release Notes
 
+### v0.2.0
+
+- Added ics-ignore binary
+- Better support for fields that need escaping
+
 ### v0.1.0
 
 - Basic functionality, enough to import a Nextcloud Calendar into a Google Calendar without leaking the event contents data
