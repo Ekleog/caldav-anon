@@ -35,17 +35,17 @@ pub fn build_property(
     let mut res = name.to_string();
     if let Some(params) = params {
         for p in params {
-            res = res + ";" + &p.0 + "=" + &p.1[0];
+            res = res + ";" + &p.0 + "=\"" + &p.1[0];
             for v in &p.1[1..] {
-                res = res + "," + v;
+                res = res + "\",\"" + v;
             }
         }
     }
-    res += ":";
+    res += "\":\"";
     if let Some(value) = value {
         res += value;
     }
-    res += "\n";
+    res += "\"\n";
     res
 }
 
